@@ -1,4 +1,4 @@
-import ffmpeg
+import subprocess
 import os
 from datetime import datetime
 
@@ -9,58 +9,87 @@ def export_short(
     subtitles_path=None,
     is_premium=False
 ):
-    """
-    Video'yu Shorts formatına dönüştürür.
-    
-    Args:
-        video_path (str): İşlenecek video dosyasının yolu
-        start_time (float, optional): Başlangıç zamanı (saniye)
-        end_time (float, optional): Bitiş zamanı (saniye)
-        subtitles_path (str, optional): Altyazı dosyasının yolu
-        is_premium (bool): Premium kullanıcı kontrolü
-    
-    Returns:
-        str: İşlenmiş video dosyasının yolu
-    """
     # Premium olmayan kullanıcılar için limit kontrolü
     if not is_premium:
         if end_time and start_time and (end_time - start_time) > 30:
             raise ValueError("Ücretsiz kullanıcılar için maksimum 30 saniye export yapılabilir")
-    
-    # Premium kullanıcılar için 60 saniye limiti
     elif end_time and start_time and (end_time - start_time) > 60:
         raise ValueError("Maksimum 60 saniye export yapılabilir")
-    
-    output_dir = "data/exports"
+
+    # Dosya yollarını tam yol yap
+    ffmpeg_path = r"C:\ffmpeg\bin\ffmpeg.exe"
+    video_path = os.path.abspath(video_path)
+    output_dir = os.path.abspath("data/exports")
     os.makedirs(output_dir, exist_ok=True)
-    
-    # Çıktı dosya adını oluştur
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = os.path.join(output_dir, f"short_{timestamp}.mp4")
-    
-    # FFmpeg komutunu oluştur
-    stream = ffmpeg.input(video_path)
-    
-    # Video kesme
-    if start_time is not None and end_time is not None:
-        stream = stream.trim(start=start_time, end=end_time)
-    
-    # 9:16 aspect ratio için crop
-    stream = stream.crop(x='(iw-ih*9/16)/2', y=0, width='ih*9/16', height='ih')
-    
-    # Altyazı ekleme
+
+    # Filtreleri oluştur
+    filters = ["crop=ih*9/16:ih"]
+
+    # Altyazı ekle
     if subtitles_path and os.path.exists(subtitles_path):
-        stream = ffmpeg.filter(stream, 'subtitles', subtitles_path)
-    
-    # Watermark ekleme (premium olmayan kullanıcılar için)
+        subtitles_path = os.path.abspath(subtitles_path)
+        subtitles_path = subtitles_path.replace("\\", "/")
+        filters.append(f"subtitles='{subtitles_path}'")
+
+    vf_filter = ",".join(filters)
+
+    # Watermark eklemek istiyorsak filter_complex kullan
     if not is_premium:
-        watermark_path = "assets/watermark.png"
+        watermark_path = os.path.abspath("assets/watermark.png")
         if os.path.exists(watermark_path):
-            watermark = ffmpeg.input(watermark_path)
-            stream = ffmpeg.overlay(stream, watermark, x='W-w-10', y='H-h-10')
-    
-    # Video'yu export et
-    stream = ffmpeg.output(stream, output_path, acodec='aac', vcodec='h264')
-    ffmpeg.run(stream, overwrite_output=True)
-    
+            watermark_path = watermark_path.replace("\\", "/")
+            
+            # Filter complex hazırlıyoruz (crop + subtitles varsa + overlay)
+            filter_complex_parts = ["crop=ih*9/16:ih"]
+            if subtitles_path and os.path.exists(subtitles_path):
+                filter_complex_parts.append(f"subtitles='{subtitles_path}'")
+            filter_complex_parts.append("overlay=W-w-10:H-h-10")
+            
+            filter_complex = ",".join(filter_complex_parts)
+
+            cmd_watermark = [
+                ffmpeg_path,
+                "-i", video_path,
+                "-i", watermark_path,
+                "-filter_complex", filter_complex,
+                "-map", "0:a?",
+                "-c:a", "aac",
+                "-c:v", "libx264",
+                "-y"
+            ]
+
+            # Video kesme
+            if start_time is not None:
+                cmd_watermark.extend(["-ss", str(start_time)])
+            if end_time is not None and start_time is not None:
+                duration = float(end_time) - float(start_time)
+                cmd_watermark.extend(["-t", str(duration)])
+
+            cmd_watermark.append(output_path)
+
+            subprocess.run(cmd_watermark, check=True)
+            return output_path
+
+    # Eğer watermark yoksa normal export
+    cmd = [
+        ffmpeg_path,
+        "-i", video_path,
+        "-vf", vf_filter,
+        "-c:a", "aac",
+        "-c:v", "libx264",
+        "-y"
+    ]
+
+    # Video kesme
+    if start_time is not None:
+        cmd.extend(["-ss", str(start_time)])
+    if end_time is not None and start_time is not None:
+        duration = float(end_time) - float(start_time)
+        cmd.extend(["-t", str(duration)])
+
+    cmd.append(output_path)
+
+    subprocess.run(cmd, check=True)
     return output_path

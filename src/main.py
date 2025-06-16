@@ -4,18 +4,18 @@ from pydantic import BaseModel
 from typing import Optional
 import os
 
-from download_video import download_video
-from extract_audio import extract_audio
-from transcribe_audio import transcribe_audio
-from generate_subtitles import generate_subtitles
-from export_short import export_short
+from src.download_video import download_video
+from src.extract_audio import extract_audio
+from src.transcribe_audio import transcribe_audio
+from src.generate_subtitles import generate_subtitles
+from src.export_short import export_short
 
 app = FastAPI(title="YouTube Shorts Maker API")
 
 # CORS ayarları
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Geliştirme için. Prodüksiyonda spesifik domainler belirtilmeli
+    allow_origins=["http://localhost:3000"],  # Frontend'in çalıştığı port
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -37,14 +37,16 @@ async def process_video(request: VideoRequest):
         video_path = download_video(request.url, output_path)
         
         # Ses çıkarma
-        audio_path = extract_audio(video_path)
+        audio_path = os.path.splitext(video_path)[0] + ".wav"
+        extract_audio(video_path, audio_path)
         
         # Transkripsiyon
-        transcript = transcribe_audio(audio_path)
-        
+        transcript = transcribe_audio(audio_path, "model/vosk-model-en-us-0.22-lgraph")    
+
         # Altyazı oluşturma
         if request.add_captions:
-            subtitles_path = generate_subtitles(transcript, audio_path)
+            subtitles_path = os.path.splitext(audio_path)[0] + ".srt"
+            generate_subtitles(transcript, subtitles_path)
         else:
             subtitles_path = None
         
@@ -64,6 +66,8 @@ async def process_video(request: VideoRequest):
         }
         
     except Exception as e:
+        import traceback
+        print(traceback.format_exc())  # <-- Bu satır terminale tam hata yığını basar
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
