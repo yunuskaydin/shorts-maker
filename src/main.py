@@ -15,7 +15,7 @@ app = FastAPI(title="YouTube Shorts Maker API")
 # CORS ayarları
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Frontend'in çalıştığı port
+    allow_origins=["http://localhost:3000", "http://169.254.20.153:3000"],  # Frontend'in çalıştığı port
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
